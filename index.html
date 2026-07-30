@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finding the Way — Counselling and Coaching with Zoe</title>
+<meta name="description" content="Finding the Way offers evidence-based counselling and coaching for people who want to make sense of what's happening beneath the surface and create meaningful change.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EFF0EC;
+    --panel:#FFFFFF;
+    --ink:#15181A;
+    --ink-soft:#50575A;
+    --amber:#C6841A;
+    --slate:#3E4A52;
+    --line:#D3D5CE;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  h1,h2,h3{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    letter-spacing:-0.01em;
+    color:var(--ink);
+  }
+
+  a{color:inherit;text-decoration:none;}
+  .mono{font-family:'IBM Plex Mono', monospace;}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px;}
+
+  .index-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--amber);
+    display:block;
+    margin-bottom:14px;
+  }
+
+  /* TOP BAR */
+  header{
+    position:sticky;
+    top:0;
+    z-index:50;
+    background:rgba(239,240,236,0.94);
+    backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--ink);
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 0;
+    gap:16px;
+  }
+  .brand{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:18px;
+  }
+  .brand span{color:var(--amber);}
+  .idx-nav{
+    display:flex;
+    gap:2px;
+    overflow-x:auto;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    scrollbar-width:none;
+  }
+  .idx-nav::-webkit-scrollbar{display:none;}
+  .idx-nav a{
+    padding:8px 12px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+    border-right:1px solid var(--line);
+    transition:color .15s ease, background .15s ease;
+  }
+  .idx-nav a:last-child{border-right:none;}
+  .idx-nav a:hover{color:var(--ink); background:var(--panel);}
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 18px;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    letter-spacing:0.02em;
+    white-space:nowrap;
+    transition:background .2s ease;
+  }
+  .btn:hover{background:var(--amber); color:var(--ink);}
+  .btn.outline{
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--ink);
+  }
+  .btn.outline:hover{background:var(--ink); color:var(--paper);}
+
+  /* SECTION SHELL */
+  section{
+    padding:76px 0;
+    border-bottom:1px solid var(--line);
+  }
+  section:last-of-type{border-bottom:none;}
+
+  /* HERO */
+  .hero{padding-top:64px;}
+  .hero h1{
+    font-size:clamp(36px,5.2vw,60px);
+    line-height:1.12;
+    max-width:820px;
+    margin-bottom:26px;
+  }
+  .hero .lede{
+    font-size:18px;
+    color:var(--ink-soft);
+    max-width:600px;
+    margin-bottom:34px;
+  }
+  .hero-actions{display:flex; gap:14px; flex-wrap:wrap;}
+
+  /* INTRO */
+  .intro-grid{
+    display:grid;
+    grid-template-columns:200px 1fr;
+    gap:40px;
+  }
+  .intro-grid p{
+    font-size:17px;
+    color:var(--ink-soft);
+    max-width:680px;
+    margin-bottom:16px;
+  }
+  .intro-grid p:first-child{color:var(--ink); font-size:19px;}
+
+  /* ABOUT */
+  .about-grid{
+    display:grid;
+    grid-template-columns:200px 1fr;
+    gap:40px;
+  }
+  .about-grid p{
+    color:var(--ink-soft);
+    font-size:16px;
+    max-width:680px;
+    margin-bottom:16px;
+  }
+  .about-grid p:first-child{color:var(--ink); font-size:18px; font-weight:500;}
+
+  /* WHY / VALUES */
+  .values-line{
+    font-size:17px;
+    color:var(--ink-soft);
+    line-height:1.9;
+    max-width:680px;
+  }
+  .values-line b{color:var(--ink); font-weight:500;}
+  .personal-note{
+    margin-top:26px;
+    padding-top:24px;
+    border-top:1px solid var(--line);
+    font-size:15px;
+    color:var(--slate);
+    font-style:italic;
+    max-width:680px;
+  }
+
+  /* FEES */
+  .fee-block{
+    display:flex;
+    gap:56px;
+    flex-wrap:wrap;
+    align-items:flex-start;
+  }
+  .fee-number{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:72px;
+    font-weight:700;
+    line-height:1;
+  }
+  .fee-number span{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:16px;
+    font-weight:400;
+    color:var(--ink-soft);
+    margin-left:8px;
+  }
+  .fee-note{
+    max-width:480px;
+    font-size:15px;
+    color:var(--ink-soft);
+  }
+  .callout{
+    border-left:3px solid var(--amber);
+    padding:14px 18px;
+    background:var(--panel);
+    font-size:14px;
+    color:var(--slate);
+  }
+  .callout b{
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--amber);
+    font-size:12px;
+    letter-spacing:0.04em;
+    display:block;
+    margin-bottom:6px;
+  }
+
+  /* BLOG */
+  .blog-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:24px;
+    flex-wrap:wrap;
+    padding:24px 0;
+    border-top:1px solid var(--line);
+  }
+  .blog-row p{color:var(--ink-soft); font-size:15px; max-width:480px;}
+
+  /* QUOTE */
+  .quote-band{background:var(--ink); color:var(--paper); border-bottom:none;}
+  .quote-band blockquote{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:clamp(22px,3vw,32px);
+    font-weight:500;
+    max-width:760px;
+    line-height:1.4;
+  }
+  .quote-band .index-label{color:var(--amber);}
+
+  /* FAQ */
+  .faq-item{border-bottom:1px solid var(--line);}
+  .faq-item summary{
+    cursor:pointer;
+    padding:20px 0;
+    font-size:16px;
+    font-weight:500;
+    font-family:'Space Grotesk', sans-serif;
+    list-style:none;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:16px;
+  }
+  .faq-item summary .qnum{
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--amber);
+    font-weight:400;
+    font-size:13px;
+    margin-right:14px;
+  }
+  .faq-item summary::-webkit-details-marker{display:none;}
+  .faq-item summary::after{
+    content:"+";
+    font-family:'IBM Plex Mono', monospace;
+    font-size:18px;
+    color:var(--amber);
+    transition:transform .2s ease;
+    flex-shrink:0;
+  }
+  .faq-item[open] summary::after{transform:rotate(45deg);}
+  .faq-item p{padding:0 0 20px 34px; color:var(--ink-soft); font-size:14.5px; max-width:640px;}
+
+  /* CONTACT */
+  .contact-grid{display:grid; grid-template-columns:1fr 380px; gap:56px; align-items:start;}
+  .contact-panel{
+    background:var(--panel);
+    border:1px solid var(--ink);
+    padding:32px;
+  }
+  .contact-panel h3{font-size:19px; margin-bottom:16px;}
+  .contact-line{
+    display:flex;
+    justify-content:space-between;
+    padding:14px 0;
+    border-bottom:1px solid var(--line);
+    font-size:14.5px;
+  }
+  .contact-line span{color:var(--ink-soft);}
+
+  footer{padding:28px 0;}
+  footer .wrap{
+    display:flex;
+    justify-content:space-between;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  @media (max-width:820px){
+    .idx-nav{display:none;}
+    .intro-grid, .about-grid{grid-template-columns:1fr;}
+    .contact-grid{grid-template-columns:1fr;}
+    .fee-block{flex-direction:column; gap:20px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap topbar">
+    <a class="brand" href="#top">Finding the Way</a>
+    <nav class="idx-nav">
+      <a href="#about">About</a>
+      <a href="#fees">Fees</a>
+      <a href="#faq">FAQ</a>
+      <a href="#contact">Contact</a>
+    </nav>
+    <a class="btn" href="#contact">Book online</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="wrap">
+      <span class="index-label">Counselling &amp; Coaching</span>
+      <h1>Honest conversations. Practical insight. Meaningful change.</h1>
+      <p class="lede">Online counselling and coaching for people who want to make sense of what's happening beneath the surface and create meaningful change.</p>
+      <div class="hero-actions">
+        <a class="btn" href="#contact">Book a free 15-minute consultation</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="intro">
+    <div class="wrap intro-grid">
+      <span class="index-label">Approach</span>
+      <div>
+        <p>Life can be complicated, confusing and overwhelming. Whether you're navigating relationship challenges, addiction, life changes, or simply feeling stuck, having the right conversation can help you better understand yourself.</p>
+        <p>My approach combines evidence-based counselling with practical coaching. Rather than relying on one therapeutic model, we'll draw on psychology, philosophy, nature and practical strategies to deepen self-understanding, build resilience and create meaningful change.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="wrap about-grid">
+      <span class="index-label">About</span>
+      <div>
+        <p>Hi, I'm Zoe. For over a decade I've worked alongside adolescents and adults experiencing some of life's most difficult challenges.</p>
+        <p>My career has spanned youth justice, mental health, homelessness, substance use and complex interpersonal conflict.</p>
+        <p>Through this work I've seen that lasting change rarely comes from advice alone. It begins by meeting people where they are, understanding their unique story, and exploring it together with curiosity, honesty and compassion.</p>
+        <p>I aim to provide a space where conversations are genuine, respectful and free from jargon. Whether you're looking for counselling, coaching, or simply someone to help untangle a complicated situation, we'll work together to better understand what's keeping you stuck and find a way forward.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="why">
+    <div class="wrap">
+      <span class="index-label">Values</span>
+      <p class="values-line">Effective counselling should be <b>practical</b>, <b>honest</b>, <b>collaborative</b>, <b>evidence-informed</b>, <b>respectful</b> and <b>individualised</b> — focused on meaningful change rather than endless reflection.</p>
+      <p class="personal-note">Outside of work: nature, gardening, hiking, freediving, philosophy. I'm interested in how people adapt and find meaning through challenges. I bring that same curiosity into my conversations.</p>
+    </div>
+  </section>
+
+  <section id="fees">
+    <div class="wrap">
+      <span class="index-label">Fees</span>
+      <div class="fee-block">
+        <div>
+          <div class="fee-number">$90<span>AUD / hour</span></div>
+        </div>
+        <div class="fee-note">
+          <div class="callout">
+            <b>NOTE — MEDICARE REBATES</b>
+            Counsellors are not currently eligible for Medicare rebates under a Mental Health Treatment Plan. The Australian Counselling Association (ACA) continues to advocate for expanded Medicare recognition of counsellors — until that changes, sessions here are private-pay only. Private health extras cover may apply depending on your fund and policy; check with your provider.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="blog">
+    <div class="wrap">
+      <span class="index-label">Blog</span>
+      <div class="blog-row">
+        <p>Longer-form writing on evidence-based approaches, common questions, and reflections from the work — coming soon.</p>
+        <a class="btn outline" href="#contact">Get notified at launch</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="quote-band">
+    <div class="wrap">
+      <blockquote>"Having the right conversation at the right time can make a significant difference."</blockquote>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <span class="index-label">Frequently Asked Questions</span>
+      <div style="margin-top:24px;">
+        <details class="faq-item">
+          <summary><span><span class="qnum">01</span>What happens in the first session?</span></summary>
+          <p>We'll spend time getting to know each other — what's brought you here, what you're hoping to get out of it, and how I work. No pressure to have it all figured out.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">02</span>Is counselling confidential?</span></summary>
+          <p>Yes. What you share stays private, with the standard legal exceptions around risk of serious harm to yourself or others — I'll explain these clearly at the outset.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">03</span>What's the difference between counselling and coaching?</span></summary>
+          <p>Counselling tends to focus on understanding and working through difficult experiences, thoughts and emotions. Coaching is more forward-focused — goal setting, motivation, practical steps. Most people benefit from a blend of both.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">04</span>How long are sessions?</span></summary>
+          <p>Standard sessions run for 50 minutes, billed at the hourly rate. Longer or shorter sessions can be arranged where useful.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">05</span>Do you offer online appointments?</span></summary>
+          <p>Yes — all sessions are online, so you can access support from anywhere in Australia.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">06</span>Do I need a referral?</span></summary>
+          <p>No referral is needed to book. As counselling doesn't currently attract a Medicare rebate, a GP Mental Health Treatment Plan isn't required either.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">07</span>How much does it cost?</span></summary>
+          <p>Sessions are AU$90 per hour — see the Fees section above.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">08</span>Can I claim rebates?</span></summary>
+          <p>Not through Medicare at present — counsellors aren't yet included under the Better Access scheme, though the ACA is actively advocating for this to change. Some private health extras policies do cover counselling; it's worth checking your specific fund.</p>
+        </details>
+        <details class="faq-item">
+          <summary><span><span class="qnum">09</span>What if I'm not sure counselling is right for me?</span></summary>
+          <p>That's exactly what the free 15-minute consultation is for — a low-pressure conversation to see whether this feels like the right fit before committing to anything.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section id="contact" style="border-bottom:none;">
+    <div class="wrap contact-grid">
+      <div>
+        <span class="index-label">Get in touch</span>
+        <h2 style="font-size:clamp(28px,3.6vw,40px); max-width:480px;">Ready when you are.</h2>
+        <p style="color:var(--ink-soft); margin-top:16px; font-size:16px; max-width:420px;">No pressure and no commitment on a first call — just a conversation to see if this feels right for you.</p>
+      </div>
+      <div class="contact-panel">
+        <h3>Book a free 15-minute consultation</h3>
+        <div class="contact-line"><span>Email</span> <a href="mailto:zoe@example.com">zoe@example.com</a></div>
+        <div class="contact-line"><span>Psychology Today</span> <a href="https://www.psychologytoday.com" target="_blank" rel="noopener">View profile</a></div>
+        <div class="contact-line" style="border-bottom:none;"><span>Rate</span> <span>AU$90 / hour</span></div>
+        <a class="btn" href="mailto:zoe@example.com" style="width:100%; justify-content:center; margin-top:20px;">Book online</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 FINDING THE WAY — COUNSELLING &amp; COACHING</span>
+  </div>
+</footer>
+
+</body>
+</html>
