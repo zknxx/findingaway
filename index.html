@@ -428,6 +428,53 @@
     .faq-item p{padding-left:0;}
   }
 </style>
+
+<!-- ============ EDIT MODE — styles ============ -->
+<style data-editor>
+  .editor-tools{
+    display:flex;
+    gap:6px;
+    align-items:center;
+    flex-shrink:0;
+  }
+  .tool-btn{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:0.02em;
+    padding:8px 12px;
+    border:1px solid var(--ink);
+    background:transparent;
+    color:var(--ink);
+    border-radius:4px;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .tool-btn:hover{background:var(--ink); color:var(--paper);}
+  .tool-btn:active{transform:scale(0.98);}
+  .tool-btn.active{
+    background:var(--amber);
+    border-color:var(--amber);
+    color:var(--ink);
+  }
+
+  /* visual cue while editing */
+  body.is-editing [contenteditable="true"]{
+    outline:2px dashed rgba(198,132,26,0.5);
+    outline-offset:6px;
+  }
+  body.is-editing [contenteditable="true"] :is(p,h1,h2,h3,li,blockquote,summary,span,a):hover{
+    background:rgba(198,132,26,0.08);
+  }
+  body.is-editing{cursor:text;}
+
+  @media (max-width:820px){
+    .topbar{flex-wrap:wrap; row-gap:10px;}
+    .editor-tools{order:5;}
+    .tool-btn{font-size:11px; padding:7px 10px;}
+  }
+</style>
+<!-- ========== END EDIT MODE — styles ========== -->
 </head>
 <body>
 
@@ -443,6 +490,10 @@
       <a href="#faq">FAQ</a>
       <a href="#contact">Contact</a>
     </nav>
+    <div class="editor-tools" data-editor>
+      <button class="tool-btn" id="editToggle" type="button" aria-pressed="false">Edit text</button>
+      <button class="tool-btn" id="copyBtn" type="button">Copy HTML</button>
+    </div>
     <a class="btn" href="#contact">Book online</a>
   </div>
 </header>
@@ -464,11 +515,12 @@
     <div class="wrap intro-grid">
       <span class="index-label">Approach</span>
       <div>
-        <p> "Until you make the unconscious conscious, it will direct your life and you will call it fate". <p>
-          
-          <p> Identifying growth from struggles </p>
-        <p>My approach combines a philosophical style of counselling with practical coaching strategies. Sometimes the parts of ourselves we reject quietly shape our lives. </p>
-   <p> I invite you to a - free exploration - into the connection - of what makes life worth living -  <p>
+        <p>"Until you make the unconscious conscious, it will direct your life and you will call it fate".</p>
+        <p>Identifying growth from struggles</p>
+        <p>My approach combines a philosophical style of counselling with practical coaching strategies. Sometimes the parts of ourselves we reject quietly shape our lives.</p>
+        <p>I invite you to a - free exploration - into the connection - of what makes life worth living -</p>
+      </div>
+    </div>
   </section>
 
   <section id="about">
@@ -629,6 +681,133 @@
     });
   });
 </script>
+
+<!-- ============ EDIT MODE — script ============ -->
+<script data-editor>
+(function () {
+  const EDITABLE = ['main', 'footer'];
+  const editBtn = document.getElementById('editToggle');
+  const copyBtn = document.getElementById('copyBtn');
+  let editing = false;
+
+  /* ---- Toggle contenteditable ---- */
+  function setEditing(on) {
+    editing = on;
+    EDITABLE.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => {
+        if (on) {
+          el.setAttribute('contenteditable', 'true');
+          el.setAttribute('spellcheck', 'true');
+        } else {
+          el.removeAttribute('contenteditable');
+          el.removeAttribute('spellcheck');
+        }
+      });
+    });
+    document.body.classList.toggle('is-editing', on);
+    editBtn.classList.toggle('active', on);
+    editBtn.textContent = on ? 'Editing — done' : 'Edit text';
+    editBtn.setAttribute('aria-pressed', String(on));
+    /* make sure every section is faded in so nothing is edited while hidden */
+    if (on) document.querySelectorAll('section').forEach(s => s.classList.add('visible'));
+  }
+
+  editBtn.addEventListener('click', () => setEditing(!editing));
+
+  /* Paste as plain text so pasted content doesn't drag in foreign styling */
+  document.addEventListener('paste', e => {
+    if (!editing) return;
+    const target = e.target.closest && e.target.closest('[contenteditable="true"]');
+    if (!target) return;
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertText', false, text);
+  });
+
+  /* Warn before leaving with unsaved edits */
+  let touched = false;
+  document.addEventListener('input', () => { if (editing) touched = true; });
+  window.addEventListener('beforeunload', e => {
+    if (touched) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  /* ---- Build HTML: keeps the editor, drops the editing state ---- */
+  function buildHTML() {
+    const clone = document.documentElement.cloneNode(true);
+
+    /* the only thing that must go: live editing attributes */
+    clone.querySelectorAll('[contenteditable]').forEach(el => {
+      el.removeAttribute('contenteditable');
+      el.removeAttribute('spellcheck');
+    });
+
+    /* reset transient UI state so the file loads fresh */
+    const body = clone.querySelector('body');
+    if (body) {
+      body.classList.remove('is-editing');
+      if (!body.className) body.removeAttribute('class');
+    }
+    clone.querySelectorAll('section.visible').forEach(el => {
+      el.classList.remove('visible');
+      if (!el.className) el.removeAttribute('class');
+    });
+    const eb = clone.querySelector('#editToggle');
+    if (eb) {
+      eb.classList.remove('active');
+      eb.textContent = 'Edit text';
+      eb.setAttribute('aria-pressed', 'false');
+    }
+    const cb = clone.querySelector('#copyBtn');
+    if (cb) {
+      cb.classList.remove('active');
+      cb.textContent = 'Copy HTML';
+    }
+
+    return '<!DOCTYPE html>\n' + clone.outerHTML;
+  }
+
+  /* ---- Copy to clipboard ---- */
+  async function copyHTML() {
+    const html = buildHTML();
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(html);
+      ok = true;
+    } catch (err) {
+      /* fallback for non-secure contexts / older browsers */
+      const ta = document.createElement('textarea');
+      ta.value = html;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+    }
+    flash(ok ? '✓ Copied' : '✕ Copy failed');
+  }
+
+  function flash(msg) {
+    const original = 'Copy HTML';
+    copyBtn.textContent = msg;
+    copyBtn.classList.add('active');
+    setTimeout(() => {
+      copyBtn.textContent = original;
+      copyBtn.classList.remove('active');
+    }, 1600);
+  }
+
+  copyBtn.addEventListener('click', copyHTML);
+
+  /* Keyboard shortcuts: Ctrl/Cmd+E toggles edit, Ctrl/Cmd+Shift+C copies */
+  document.addEventListener('keydown', e => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setEditing(!editing); }
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copyHTML(); }
+  });
+})();
+</script>
+<!-- ========== END EDIT MODE — script ========== -->
 
 </body>
 </html>
