@@ -1,408 +1,9 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script>
-      (function() {
-        // Capture host references before any artifact code runs: Window.parent
-        // is [Replaceable] (a top-level `var parent` in artifact code would
-        // replace the accessor with a data property), and a top-level
-        // `const crypto` would shadow the global — either would otherwise
-        // silently break the bridge for artifacts that worked before.
-        const realParent = window.parent;
-        const cryptoObj = window.crypto;
-        // html-to-image is only used by takeScreenshot: fetched on first use, not as a
-        // parser-blocking tag. Native fetch, captured before the proxy override below.
-        const realFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
-        const HTML_TO_IMAGE_SRC = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.13/html-to-image.min.js";
-        const HTML_TO_IMAGE_INTEGRITY = "sha512-iZ2ORl595Wx6miw+GuadDet4WQbdSWS3JLMoNfY8cRGoEFy6oT3G9IbcrBeL6AfkgpA51ETt/faX6yLV+/gFJg==";
-        let htmlToImageLoad = null;
-        const loadHtmlToImage = () => {
-          if (!htmlToImageLoad) {
-            htmlToImageLoad = (realFetch
-              ? realFetch(HTML_TO_IMAGE_SRC, { integrity: HTML_TO_IMAGE_INTEGRITY, credentials: 'omit', referrerPolicy: 'no-referrer' })
-              : Promise.reject(new Error('fetch unavailable'))
-            )
-              .then((res) => {
-                if (!res.ok) throw new Error('html-to-image failed to load (' + res.status + ')');
-                return res.text();
-              })
-              .then((source) => {
-                // UMD bundle: hide the artifact's AMD/CommonJS globals so it takes the
-                // window-global branch; inline script text runs synchronously on insert.
-                const hidden = ['define', 'module', 'exports'].map((k) => {
-                  const entry = { k, own: Object.prototype.hasOwnProperty.call(window, k), v: window[k] };
-                  try { window[k] = undefined; } catch (e) {}
-                  return entry;
-                });
-                try {
-                  const el = document.createElement('script');
-                  el.text = source;
-                  (document.head || document.documentElement).appendChild(el);
-                } finally {
-                  hidden.forEach(({ k, own, v }) => {
-                    try { if (own) { window[k] = v; } else { delete window[k]; } } catch (e) {}
-                  });
-                }
-                if (!window.htmlToImage) throw new Error('html-to-image unavailable after load');
-                return window.htmlToImage;
-              });
-            // A failed load may be transient; let the next screenshot retry.
-            htmlToImageLoad.catch(() => { htmlToImageLoad = null; });
-          }
-          return htmlToImageLoad;
-        };
-        // crypto.randomUUID exists only in Secure Contexts; fall back to a
-        // unique non-crypto id elsewhere (http://LAN-IP dev flows) —
-        // uniqueness is what the bridge needs, unpredictability is
-        // defense-in-depth on top of the source guards.
-        const newRequestId =
-          cryptoObj && typeof cryptoObj.randomUUID === "function"
-            ? function () { return cryptoObj.randomUUID(); }
-            : function () { return Date.now() + "-" + Math.random(); };
-        const originalConsole = window.console;
-        window.console = {
-          log: (...args) => {
-            originalConsole.log(...args);
-            realParent.postMessage({ type: 'console', message: args.join(' ') }, '*');
-          },
-          error: (...args) => {
-            originalConsole.error(...args);
-            realParent.postMessage({ type: 'console', message: 'Error: ' + args.join(' ') }, '*');
-          },
-          warn: (...args) => {
-            originalConsole.warn(...args);
-            realParent.postMessage({ type: 'console', message: 'Warning: ' + args.join(' ') }, '*');
-          }
-        };
-
-        // Bridge request ids are crypto-random (not sequential) so they
-        // cannot be predicted by other frames in the tab.
-        let callbacksMap = new Map();
-        let streamControllers = new Map();
-        
-        window.claude = {
-          complete: (prompt) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'claudeComplete', id, prompt }, '*');
-            });
-          }
-        };
-
-        window.storage = {
-          get: (key, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageGet', id, key, shared }, '*');
-            });
-          },
-          set: (key, value, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageSet', id, key, value, shared }, '*');
-            });
-          },
-          delete: (key, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageDelete', id, key, shared }, '*');
-            });
-          },
-          list: (prefix, shared = false) => {
-            return new Promise((resolve, reject) => {
-              const id = newRequestId();
-              callbacksMap.set(id, { resolve, reject });
-              realParent.postMessage({ type: 'storageList', id, prefix, shared }, '*');
-            });
-          }
-        };
-
-        let pendingBlobs = new Map();
-        URL.createObjectURL = (blob) => {
-          // Store the blob and create an ID and URL for it
-          const blobId = `blob-${Date.now()}-${Math.random()}`;
-          pendingBlobs.set(blobId, blob);
-          return `blob-request://${blobId}`;
-        };
-
-        URL.revokeObjectURL = (url) => {
-          // Remove the blob from our store
-          const blobId = url.replace("blob-request://", "");
-          pendingBlobs.delete(blobId);
-        };
-
-        const getBlobFromURL = (url) => {
-          const blobId = url.replace("blob-request://", "");
-          return pendingBlobs.get(blobId);
-        };
-
-        // Override global fetch with streaming support
-        window.fetch = (url, init = {}) => {
-          return new Promise((resolve, reject) => {
-            const id = newRequestId();
-            const channelId = `fetch-${id}-${Date.now()}`;
-            
-            callbacksMap.set(id, { 
-              resolve: (response) => {
-                // Null-body statuses: Response(stream, {status: 204}) throws
-                // per the Fetch spec, which would escape this resolver and
-                // hang the artifact's await forever.
-                if (response.status === 204 || response.status === 205 || response.status === 304) {
-                  try {
-                    resolve(new Response(null, {
-                      status: response.status,
-                      statusText: response.statusText,
-                      headers: response.headers
-                    }));
-                  } catch (err) {
-                    // Invalid statusText/header bytes can throw here too.
-                    reject(new TypeError(
-                      'Bridge fetch: unconstructable response (status ' + response.status + ')'
-                    ));
-                  }
-                  return;
-                }
-                // Create a ReadableStream for the response body
-                const stream = new ReadableStream({
-                  start(controller) {
-                    streamControllers.set(channelId, controller);
-                  },
-                  cancel() {
-                    streamControllers.delete(channelId);
-                  }
-                });
-                
-                // Create and return the Response with the stream. Response()
-                // requires status in [200, 599]; an opaque/no-cors fetch
-                // forwards status 0, which would throw here and escape the
-                // resolver, hanging the artifact's await. Surface it as a
-                // network-error-shaped rejection instead.
-                try {
-                  resolve(new Response(stream, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: response.headers
-                  }));
-                } catch (err) {
-                  streamControllers.delete(channelId);
-                  reject(new TypeError(
-                    'Bridge fetch: unconstructable response (status ' + response.status + ')'
-                  ));
-                }
-              },
-              reject,
-              channelId
-            });
-            
-            realParent.postMessage({
-              type: 'proxyFetch',
-              id,
-              url,
-              init,
-              channelId
-            }, '*');
-          });
-        };
-
-        window.addEventListener('message', async (event) => {
-          // Only the embedding parent may drive the bridge — sibling and
-          // nested frames can also postMessage into this window.
-          if (event.source !== realParent) return;
-          if (event.data.type === 'takeScreenshot') {
-            // Echo the request's nonce so the requester can correlate the
-            // reply to ITS request — a reply without the expected nonce
-            // (e.g. from a stale pre-remount artifact) is ignored upstream.
-            const screenshotNonce = event.data.nonce;
-            const rootElement = document.getElementById('artifacts-component-root-html');
-            if (!rootElement) {
-              realParent.postMessage({
-                type: 'screenshotError',
-                nonce: screenshotNonce,
-                error: new Error('Root element not found'),
-              }, '*');
-              return;
-            }
-            // Catch CDN load failures and toPng errors so the parent always
-            // gets a response instead of hanging forever.
-            try {
-              const htmlToImage = await loadHtmlToImage();
-              const screenshot = await htmlToImage.toPng(rootElement, {
-                imagePlaceholder:
-                  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUGFdjePDgwX8ACOQDoNsk0PMAAAAASUVORK5CYII=",
-              });
-              realParent.postMessage({
-                type: 'screenshotData',
-                nonce: screenshotNonce,
-                data: screenshot,
-              }, '*');
-            } catch (err) {
-              realParent.postMessage({
-                type: 'screenshotError',
-                nonce: screenshotNonce,
-                error: err instanceof Error ? err : new Error(String(err)),
-              }, '*');
-            }
-          } else if (event.data.type === 'claudeComplete') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.completion);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'proxyFetchResponse') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-              callbacksMap.delete(event.data.id);
-            } else {
-              // Initial response with headers, status, etc.
-              callback.resolve({
-                status: event.data.status,
-                statusText: event.data.statusText,
-                headers: event.data.headers
-              });
-              // Don't delete the callback yet if streaming
-              if (!event.data.body) {
-                callbacksMap.delete(event.data.id);
-              }
-            }
-          } else if (event.data.type === 'proxyFetchStream') {
-            // Handle streaming data chunks
-            const controller = streamControllers.get(event.data.channelId);
-            if (controller) {
-              if (event.data.error) {
-                controller.error(new Error(event.data.error));
-                streamControllers.delete(event.data.channelId);
-              } else if (event.data.done) {
-                controller.close();
-                streamControllers.delete(event.data.channelId);
-                // Clean up the callback
-                const callback = Array.from(callbacksMap.entries()).find(
-                  ([_, value]) => value.channelId === event.data.channelId
-                );
-                if (callback) {
-                  callbacksMap.delete(callback[0]);
-                }
-              } else if (event.data.chunk) {
-                controller.enqueue(new Uint8Array(event.data.chunk));
-              }
-            }
-          } else if (event.data.type === 'storageGet') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageSet') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageDelete') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          } else if (event.data.type === 'storageList') {
-            const callback = callbacksMap.get(event.data.id);
-            if (!callback) return;
-            if (event.data.error) {
-              callback.reject(new Error(event.data.error));
-            } else {
-              callback.resolve(event.data.result);
-            }
-            callbacksMap.delete(event.data.id);
-          }
-        });
-
-        window.addEventListener('click', (event) => {
-          const isEl = event.target instanceof HTMLElement;
-          if (!isEl) return;
-    
-          // find ancestor links
-          const linkEl = event.target.closest("a");
-          if (!linkEl || !linkEl.href) return;
-    
-          event.preventDefault();
-          event.stopImmediatePropagation();
-    
-          if (linkEl.href.startsWith("blob-request:")) {
-            const blob = getBlobFromURL(linkEl.href);
-            if (!blob) return;
-            void blob.arrayBuffer().then((data) => {
-              realParent.postMessage({
-                type: "downloadFile",
-                filename: linkEl.download,
-                data,
-                mimeType: blob.type || "application/octet-stream",
-              });
-            });
-          } else if (linkEl.href.startsWith("data:")) {
-            const [header, base64Data] = linkEl.href.split(",");
-            const mimeMatch = header.match(/data:([^;]+)/);
-            const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-            const binaryString = atob(base64Data);
-            const data = Uint8Array.from(binaryString, (c) =>
-              c.charCodeAt(0),
-            ).buffer;
-            realParent.postMessage({
-              type: "downloadFile",
-              filename: linkEl.download,
-              data,
-              mimeType,
-            });
-          } else {
-            let linkUrl;
-            try {
-              linkUrl = new URL(linkEl.href);
-            } catch (error) {
-              return;
-            }
-    
-            if (linkUrl.hostname === window.location.hostname) return;
-      
-            realParent.postMessage({
-              type: 'openExternal',
-              href: linkEl.href,
-            }, '*');
-          }
-      });
-
-        const originalOpen = window.open;
-        window.open = function (url) {
-          realParent.postMessage({
-            type: "openExternal",
-            href: url,
-          }, "*");
-        };
-
-        window.addEventListener('error', (event) => {
-          realParent.postMessage({ type: 'console', message: 'Uncaught Error: ' + event.message }, '*');
-        });
-      })();
-    </script>
-  
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Finding the Way: Honest conversations with Zoe</title>
-<meta name="description" content="Finding the Way offers philosophical coaching and counselling for people who want to make sense of what's happening beneath the surface.">
+<meta name="description" content="Finding the Way - coaching and counselling for people who want to make sense of what's happening beneath the surface.">
 <style>
   :root{
     --paper:#EFEFEF;
@@ -740,6 +341,36 @@
   }
   .contact-line span{color:var(--ink-soft);}
 
+  .credential-badges{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:20px;
+    padding-top:20px;
+    border-top:1px solid var(--line);
+  }
+  .cred-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 12px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    font-family:'Calibri','Carlito','Segoe UI',system-ui,-apple-system,sans-serif;
+    font-size:12px;
+    letter-spacing:0.01em;
+    color:var(--ink-soft);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .cred-badge:hover{border-color:var(--ink); color:var(--ink);}
+  .cred-badge .dot{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:var(--ink);
+    flex-shrink:0;
+  }
+
   footer{padding:28px 0;}
   footer .wrap{
     display:flex;
@@ -823,55 +454,8 @@
     .faq-item p{padding-left:0;}
   }
 </style>
-
-<!-- ============ EDIT MODE — styles ============ -->
-<style data-editor="">
-  .editor-tools{
-    display:flex;
-    gap:6px;
-    align-items:center;
-    flex-shrink:0;
-  }
-  .tool-btn{
-    font-family:'Calibri','Carlito','Segoe UI',system-ui,-apple-system,sans-serif;
-    font-size:11.5px;
-    letter-spacing:0.02em;
-    padding:8px 12px;
-    border:1px solid var(--ink);
-    background:transparent;
-    color:var(--ink);
-    border-radius:4px;
-    cursor:pointer;
-    white-space:nowrap;
-    transition:background .15s ease, color .15s ease, border-color .15s ease;
-  }
-  .tool-btn:hover{background:var(--ink); color:var(--paper);}
-  .tool-btn:active{transform:scale(0.98);}
-  .tool-btn.active{
-    background:var(--amber);
-    border-color:var(--amber);
-    color:var(--ink);
-  }
-
-  /* visual cue while editing */
-  body.is-editing [contenteditable="true"]{
-    outline:2px dashed rgba(0,0,0,0.4);
-    outline-offset:6px;
-  }
-  body.is-editing [contenteditable="true"] :is(p,h1,h2,h3,li,blockquote,summary,span,a):hover{
-    background:rgba(0,0,0,0.06);
-  }
-  body.is-editing{cursor:text;}
-
-  @media (max-width:820px){
-    .topbar{flex-wrap:wrap; row-gap:10px;}
-    .editor-tools{order:5;}
-    .tool-btn{font-size:11px; padding:7px 10px;}
-  }
-</style>
-<!-- ========== END EDIT MODE — styles ========== -->
 </head>
-<body id="artifacts-component-root-html">
+<body>
 
 <header>
   <div class="wrap topbar">
@@ -885,10 +469,6 @@
       <a href="#faq">FAQ</a>
       <a href="#contact">Contact</a>
     </nav>
-    <div class="editor-tools" data-editor="">
-      <button class="tool-btn" id="editToggle" type="button" aria-pressed="false">Edit text</button>
-      <button class="tool-btn" id="copyBtn" type="button">Copy HTML</button>
-    </div>
     <a class="btn" href="#contact">Book online</a>
   </div>
 </header>
@@ -911,7 +491,7 @@
       <span class="index-label">Approach</span>
       <div>
         <p>Sometimes the parts of ourselves we reject quietly shape our lives.</p>
-        <p>My approach draws on a Jungian psychology framework that combines counselling with practical coaching strategies, offered as a free exploration into what makes life worth living.</p>
+        <p>My approach combines counselling with practical coaching strategies, offered as a free exploration into purpose, meaning and what makes your life worth living.</p>
       </div>
     </div>
   </section>
@@ -920,8 +500,8 @@
     <div class="wrap about-grid">
       <span class="index-label">About</span>
       <div>
-        <p>Hi, I'm Zoe. I'm interested in your experience of living and what brings meaning. I bring lived stories of hope, struggle and resilience, including my own. I'm a high-school dropout who has lived through plenty of the failures and successes of an ordinary, modern life. My perspective and curiosity have been shaped as much by that as by my education. This isn't about managing symptoms or fixing what's broken. It's a space to ask harder questions: what do you value? What kind of life are you living versus the one that would let you feel like yourself? Has your own nature been buried under other people's expectations?</p>
-        <p>With a professional background in youth crime and complex social work, I've seen that change rarely comes from endless talk. I value dynamic, honest conversation over rehearsed technique. Rather than offering answers, I aim to meet people where they are, understanding their story as they find their own way forward. I want our conversations to be genuine and unfiltered.</p>
+        <p>Hi, I'm Zoe. I'm interested in your unique experience of life and what brings meaning. I bring lived stories of hope, struggle and resilience, including my own. I've lived through plenty of failures and successes throughout my own life. I don't see conversations about only managing symptoms or fixing what's broken. It's rather a space to ask deeper questions about what you value? If your life feels choosen and decided ? Do you feel buried below the expectations of others?</p>
+        <p>In my practice, I combine my studies of philosophy, psychology, lived experience and a Masters of Counselling. With a professional background in youth crime and complex social work, I've seen that change rarely comes from endless talk. I value dynamic, honest conversation over rehearsed assesments or frameworks. Rather than offering answers, I aim to meet people where they are, understanding their story as they find their own way forward. I want our conversations to be genuine and unfiltered.</p>
         <p>Our minds have a way of tying themselves in knots. Together, we'll work to untangle them.</p>
       </div>
     </div>
@@ -929,7 +509,7 @@
 
   <section id="why">
     <div class="wrap">
-      <span class="index-label">Values</span><p class="values-line">Drawing on Jungian psychology and the mythic tradition is the idea that each person carries a unique pattern, a "genius" within. My approach treats your struggles not as problems to eliminate but as doorways. The places you're stuck often point straight at what matters most.</p><p class="values-line">I don't see people as problems to be solved. Effective counselling should be <b>practical</b>, <b>honest</b>, <b>short-term</b> and <b>individualised</b> focused on meaningful change rather than endless reflection. We make sense once our story makes sense.</p>
+      <span class="index-label">Values</span><p class="values-line">Drawing on Jungian psychology and the mythic tradition of storytelling is the idea that each person carries a unique pattern, a "genius" within. My approach treats your struggles not as problems to eliminate but as doorways. The places you're stuck often point straight at what matters most.</p><p class="values-line">I don't see people as problems to be solved. Effective counselling should be <b>practical</b>, <b>honest</b>, <b>short-term</b> and <b>individualised</b> focused on meaningful change rather than endless reflection. We make sense once our story makes sense.</p>
       <div class="personal-note">
         <p>How we respond to uncertainty, suffering and change often reveals more about who we are than periods of comfort. Rather than seeing adversity as something to overcome, I'm curious about what it asks of us, what it reveals, and who it invites us to become. </p>
         <p>Freediving has influenced this perspective. Beneath the surface there is little room for force or control. Progress comes through patience, trust, surrender and presence. Learning to remain calm in discomfort often changes not only how we dive, but how we move through life. Those principles quietly inform the way I approach my conversations.</p>
@@ -958,7 +538,7 @@
       <span class="index-label">Blog</span>
       <div class="blog-row">
         <div>
-          <p>Blog exploring meaning, connection and purpose. Coming soon.</p>
+          <p>Blog exploring meaning, connection and purpose..</p>
           <form class="blog-signup" onsubmit="this.querySelector('input').disabled=true; this.querySelector('button').disabled=true">
             <input type="email" placeholder="your@email.com" required="">
             <button class="btn outline" type="submit">Notify me</button>
@@ -1027,6 +607,10 @@
         <span class="index-label">Get in touch</span>
         </div><div class="contact-panel"><h3>Book online</h3>
         <a class="btn" href="mailto:zoeknox@gmail.com?subject=Booking%20consultation%20-%20Zoe&amp;body=Hi%20Zoe%2C%0A%0AI%27d%20like%20to%20book%20a%20free%2015-minute%20consultation%20%0A%0AThank%20you" style="width:100%; justify-content:center; margin-top:20px;">Book online</a>
+        <div class="credential-badges">
+          <a class="cred-badge" href="https://www.psychologytoday.com/au/counselling/zoe-knox-perth-wa/1607972" target="_blank" rel="noopener"><span class="dot"></span>Verified by Psychology Today</a>
+          <a class="cred-badge" href="https://www.theaca.net.au" target="_blank" rel="noopener"><span class="dot"></span>ACA Registered Counsellor — Level 2</a>
+        </div>
       </div>
     </div>
   </section>
@@ -1070,134 +654,6 @@
     });
   });
 </script>
-
-<!-- ============ EDIT MODE — script ============ -->
-<script data-editor="">
-(function () {
-  const EDITABLE = ['main', 'footer'];
-  const editBtn = document.getElementById('editToggle');
-  const copyBtn = document.getElementById('copyBtn');
-  let editing = false;
-
-  /* ---- Toggle contenteditable ---- */
-  function setEditing(on) {
-    editing = on;
-    EDITABLE.forEach(sel => {
-      document.querySelectorAll(sel).forEach(el => {
-        if (on) {
-          el.setAttribute('contenteditable', 'true');
-          el.setAttribute('spellcheck', 'true');
-        } else {
-          el.removeAttribute('contenteditable');
-          el.removeAttribute('spellcheck');
-        }
-      });
-    });
-    document.body.classList.toggle('is-editing', on);
-    editBtn.classList.toggle('active', on);
-    editBtn.textContent = on ? 'Editing: done' : 'Edit text';
-    editBtn.setAttribute('aria-pressed', String(on));
-    /* make sure every section is faded in so nothing is edited while hidden */
-    if (on) document.querySelectorAll('section').forEach(s => s.classList.add('visible'));
-  }
-
-  editBtn.addEventListener('click', () => setEditing(!editing));
-
-  /* Paste as plain text so pasted content doesn't drag in foreign styling */
-  document.addEventListener('paste', e => {
-    if (!editing) return;
-    const target = e.target.closest && e.target.closest('[contenteditable="true"]');
-    if (!target) return;
-    e.preventDefault();
-    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-    document.execCommand('insertText', false, text);
-  });
-
-  /* Warn before leaving with unsaved edits */
-  let touched = false;
-  document.addEventListener('input', () => { if (editing) touched = true; });
-  window.addEventListener('beforeunload', e => {
-    if (touched) { e.preventDefault(); e.returnValue = ''; }
-  });
-
-  /* ---- Build HTML: keeps the editor, drops the editing state ---- */
-  function buildHTML() {
-    const clone = document.documentElement.cloneNode(true);
-
-    /* the only thing that must go: live editing attributes */
-    clone.querySelectorAll('[contenteditable]').forEach(el => {
-      el.removeAttribute('contenteditable');
-      el.removeAttribute('spellcheck');
-    });
-
-    /* reset transient UI state so the file loads fresh */
-    const body = clone.querySelector('body');
-    if (body) {
-      body.classList.remove('is-editing');
-      if (!body.className) body.removeAttribute('class');
-    }
-    clone.querySelectorAll('section.visible').forEach(el => {
-      el.classList.remove('visible');
-      if (!el.className) el.removeAttribute('class');
-    });
-    const eb = clone.querySelector('#editToggle');
-    if (eb) {
-      eb.classList.remove('active');
-      eb.textContent = 'Edit text';
-      eb.setAttribute('aria-pressed', 'false');
-    }
-    const cb = clone.querySelector('#copyBtn');
-    if (cb) {
-      cb.classList.remove('active');
-      cb.textContent = 'Copy HTML';
-    }
-
-    return '<!DOCTYPE html>\n' + clone.outerHTML;
-  }
-
-  /* ---- Copy to clipboard ---- */
-  async function copyHTML() {
-    const html = buildHTML();
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(html);
-      ok = true;
-    } catch (err) {
-      /* fallback for non-secure contexts / older browsers */
-      const ta = document.createElement('textarea');
-      ta.value = html;
-      ta.setAttribute('readonly', '');
-      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
-      document.body.appendChild(ta);
-      ta.select();
-      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-      document.body.removeChild(ta);
-    }
-    flash(ok ? '✓ Copied' : '✕ Copy failed');
-  }
-
-  function flash(msg) {
-    const original = 'Copy HTML';
-    copyBtn.textContent = msg;
-    copyBtn.classList.add('active');
-    setTimeout(() => {
-      copyBtn.textContent = original;
-      copyBtn.classList.remove('active');
-    }, 1600);
-  }
-
-  copyBtn.addEventListener('click', copyHTML);
-
-  /* Keyboard shortcuts: Ctrl/Cmd+E toggles edit, Ctrl/Cmd+Shift+C copies */
-  document.addEventListener('keydown', e => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && !e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setEditing(!editing); }
-    if (mod && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copyHTML(); }
-  });
-})();
-</script>
-<!-- ========== END EDIT MODE — script ========== -->
-
 
 
 
